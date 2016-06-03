@@ -35,18 +35,6 @@ DESC
                :desc => "Use SSL when connecting to influxDB."
   config_param :verify_ssl, :bool, :default => true,
                :desc => "Enable/Disable SSL Certs verification when connecting to influxDB via SSL."
-  config_param :tag_keys, :array, :default => [],
-               :desc => "The names of the keys to use as influxDB tags."
-  config_param :sequence_tag, :string, :default => nil,
-               :desc => <<-DESC
-The name of the tag whose value is incremented for the consecutive simultaneous
-events and reset to zero for a new event with the different timestamp.
-DESC
-  config_param :retention_policy_key, :string, :default => nil,
-               :desc => "The key of the key in the record that stores the retention policy name"
-  config_param :default_retention_policy, :string, :default => nil,
-               :desc => "The name of the default retention policy"
-
 
   def initialize
     super
@@ -104,62 +92,66 @@ DESC
     points = []
     chunk.msgpack_each do |tag, time, record|
       timestamp = record.delete(@time_key) || time
-      if tag_keys.empty?
-        values = record
-        tags = {}
-      else
-        values = {}
-        tags = {}
-        record.each_pair do |k, v|
-          if @tag_keys.include?(k)
-            # If the tag value is not nil, empty, or a space, add the tag
-            if v.to_s.strip != ''
-              tags[k] = v
-            end
-          else
-            values[k] = v
-          end
+      
+      # prep the placement tags
+      tags = {}
+      if record.has_key? 'service'
+        tags['service'] = record['service']
+      end
+      %w(cloud hostname instanceid podname region zone).each do |tag|
+        if record.has_key? "placement.#{tag}"
+          tags[tag] = record['placement.' + tag]
         end
       end
-      if @sequence_tag
-        if @prev_timestamp == timestamp
-          @seq += 1
-        else
-          @seq = 0
+
+      points = []
+      record.each_key do |key_name|
+
+        point = {
+          :timestamp => timestamp.to_i,
+          :series    => key_name,
+          :values    => { value: record[key_name] },
+          :tags      => tags,
+        }
+
+        # timer
+        if key_name.match /took<(long|int)>$/
+          points << {
+            :timestamp => timestamp.to_i,
+            :series    => key_name.sub(/<(long|int)>$/, ''),
+            :values    => { value: record[key_name] },
+            :tags      => tags,
+          }
+
+        # counters
+        elsif key_name.match /count<(long|int)>$/
+          points << {
+            :timestamp => timestamp.to_i,
+            :series    => key_name.sub(/<(long|int)>$/, ''),
+            :values    => { value: record[key_name] },
+            :tags      => tags,
+          }
+        elsif key_name.match /success<int>$/
+          points << {
+            :timestamp => timestamp.to_i,
+            :series    => key_name.sub(/<int>$/, ''),
+            :values    => { value: record[key_name] },
+            :tags      => tags,
+          }
+        elsif key_name.match /error<int>$/
+          points << {
+            :timestamp => timestamp.to_i,
+            :series    => key_name.sub(/<int>$/, ''),
+            :values    => { value: record[key_name] },
+            :tags      => tags,
+          }
         end
-        tags[@sequence_tag] = @seq
-        @prev_timestamp = timestamp
       end
-      point = {
-        :timestamp => timestamp,
-        :series    => tag,
-        :values    => values,
-        :tags      => tags,
-      }
-      retention_policy = @default_retention_policy
-      unless @retention_policy_key.nil?
-        retention_policy = record.delete(@retention_policy_key) || @default_retention_policy
-        unless points.nil?
-          if retention_policy != @default_retention_policy
-            # flush the retention policy first
-            @influxdb.write_points(points, nil, @default_retention_policy)
-            points = nil
-          end
-        end
-      end
-      if points.nil?
-        @influxdb.write_points([point], nil, retention_policy)
-      else
-        points << point
+
+      unless points.empty?
+        @influxdb.write_points(points, nil)
       end
     end
 
-    unless points.nil?
-      if @default_retention_policy.nil?
-        @influxdb.write_points(points)
-      else
-        @influxdb.write_points(points, nil, @default_retention_policy)
-      end
-    end
   end
 end
