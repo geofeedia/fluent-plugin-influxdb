@@ -107,42 +107,18 @@ DESC
       points = []
       record.each_key do |key_name|
 
-        point = {
-          :timestamp => timestamp.to_i,
-          :series    => key_name,
-          :values    => { value: record[key_name] },
-          :tags      => tags,
-        }
-
-        # timer
-        if key_name.match /took<(long|int)>$/
+        if key_name.match /<(int|long)>$/
           points << {
             :timestamp => timestamp.to_i,
-            :series    => key_name.sub(/<(long|int)>$/, ''),
-            :values    => { value: record[key_name] },
+            :series    => key_name.sub(/<(int|long)>$/, ''),
+            :values    => { value: record[key_name].to_i },
             :tags      => tags,
           }
-
-        # counters
-        elsif key_name.match /count<(long|int)>$/
+        elsif key_name.match /<(float|double)>$/
           points << {
             :timestamp => timestamp.to_i,
-            :series    => key_name.sub(/<(long|int)>$/, ''),
-            :values    => { value: record[key_name] },
-            :tags      => tags,
-          }
-        elsif key_name.match /success<int>$/
-          points << {
-            :timestamp => timestamp.to_i,
-            :series    => key_name.sub(/<int>$/, ''),
-            :values    => { value: record[key_name] },
-            :tags      => tags,
-          }
-        elsif key_name.match /error<int>$/
-          points << {
-            :timestamp => timestamp.to_i,
-            :series    => key_name.sub(/<int>$/, ''),
-            :values    => { value: record[key_name] },
+            :series    => key_name.sub(/<(float|double)>$/, ''),
+            :values    => { value: record[key_name].to_f },
             :tags      => tags,
           }
         end
