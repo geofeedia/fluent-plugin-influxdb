@@ -98,29 +98,52 @@ DESC
       if record.has_key? 'service'
         tags['service'] = record['service']
       end
-      %w(cloud hostname instanceid podname region zone).each do |tag|
-        if record.has_key? "placement.#{tag}"
-          tags[tag] = record['placement.' + tag]
+
+      %w(cloud hostname instanceid podname region zone).each do |placement_tag|
+        if record.has_key? "placement.#{placement_tag}"
+          tags[placement_tag] = record['placement.' + placement_tag]
         end
       end
 
       points = []
       record.each_key do |key_name|
-
-        if key_name.match /<(int|long)>$/
-          points << {
-            :timestamp => timestamp.to_i,
-            :series    => key_name.sub(/<(int|long)>$/, ''),
-            :values    => { value: record[key_name].to_i },
-            :tags      => tags,
-          }
-        elsif key_name.match /<(float|double)>$/
-          points << {
-            :timestamp => timestamp.to_i,
-            :series    => key_name.sub(/<(float|double)>$/, ''),
-            :values    => { value: record[key_name].to_f },
-            :tags      => tags,
-          }
+        if record.has_key? 'schema'
+          case record['schema']
+          when 'woodpecker.v1'
+            if key_name.match /<(int|long)>$/
+              points << {
+                :timestamp => timestamp.to_i,
+                :series    => record['module'] << "." << record['submodule'] << "." << record['action'] << "." << key_name.sub(/<(int|long)>$/, ''),
+                :values    => { value: record[key_name].to_f },
+                :tags      => tags,
+              }
+            elsif key_name.match /<(float|double)>$/
+              points << {
+                :timestamp => timestamp.to_i,
+                :series    => record['module'] << "." << record['submodule'] << "." << record['action'] << "." << key_name.sub(/<(float|double)>$/, ''),
+                :values    => { value: record[key_name].to_f },
+                :tags      => tags,
+              }
+            end
+          else
+            $log.warn('Unrecognized schema. Dropping record.')
+          end
+        else
+          if key_name.match /<(int|long)>$/
+            points << {
+              :timestamp => timestamp.to_i,
+              :series    => key_name.sub(/<(int|long)>$/, ''),
+              :values    => { value: record[key_name].to_f },
+              :tags      => tags,
+            }
+          elsif key_name.match /<(float|double)>$/
+            points << {
+              :timestamp => timestamp.to_i,
+              :series    => key_name.sub(/<(float|double)>$/, ''),
+              :values    => { value: record[key_name].to_f },
+              :tags      => tags,
+            }
+          end
         end
       end
 
@@ -128,6 +151,5 @@ DESC
         @influxdb.write_points(points, nil)
       end
     end
-
   end
 end
