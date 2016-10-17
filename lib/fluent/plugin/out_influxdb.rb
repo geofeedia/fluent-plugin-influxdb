@@ -4,37 +4,30 @@ require 'influxdb'
 require 'fluent/mixin'
 
 class Fluent::InfluxdbOutput < Fluent::BufferedOutput
+
   Fluent::Plugin.register_output('influxdb', self)
 
   include Fluent::HandleTagNameMixin
 
-  config_param :host, :string,  :default => 'localhost',
-               :desc => "The IP or domain of influxDB."
-  config_param :port, :integer,  :default => 8086,
-               :desc => "The HTTP port of influxDB."
+  config_param :host, :string,  :default => 'localhost', :desc => "The IP or domain of influxDB."
+  config_param :port, :integer,  :default => 8086, :desc => "The HTTP port of influxDB."
   config_param :dbname, :string,  :default => 'fluentd',
                :desc => <<-DESC
 The database name of influxDB.
 You should create the database and grant permissions at first.
 DESC
-  config_param :user, :string,  :default => 'root',
-               :desc => "The DB user of influxDB, should be created manually."
-  config_param :password, :string,  :default => 'root', :secret => true,
-               :desc => "The password of the user."
-  config_param :retry, :integer, :default => nil,
-               :desc => 'The finite number of retry times. default is infinite'
-  config_param :time_key, :string, :default => 'time',
-               :desc => 'Use value of this tag if it exists in event instead of event timestamp'
+  config_param :user, :string,  :default => 'root', :desc => "The DB user of influxDB, should be created manually."
+  config_param :password, :string,  :default => 'root', :secret => true, :desc => "The password of the user."
+  config_param :retry, :integer, :default => nil, :desc => 'The finite number of retry times. default is infinite'
+  config_param :time_key, :string, :default => 'time', :desc => 'Use value of this tag if it exists in event instead of event timestamp'
   config_param :time_precision, :string, :default => 's',
-               :desc => <<-DESC
+:desc => <<-DESC
 The time precision of timestamp.
 You should specify either hour (h), minutes (m), second (s),
 millisecond (ms), microsecond (u), or nanosecond (n).
 DESC
-  config_param :use_ssl, :bool, :default => false,
-               :desc => "Use SSL when connecting to influxDB."
-  config_param :verify_ssl, :bool, :default => true,
-               :desc => "Enable/Disable SSL Certs verification when connecting to influxDB via SSL."
+  config_param :use_ssl, :bool, :default => false, :desc => "Use SSL when connecting to influxDB."
+  config_param :verify_ssl, :bool, :default => true, :desc => "Enable/Disable SSL Certs verification when connecting to influxDB via SSL."
 
   def initialize
     super
@@ -107,28 +100,8 @@ DESC
 
       points = []
       record.each_key do |key_name|
-        if record.has_key? 'schema'
-          case record['schema']
-          when 'woodpecker.v1'
-            if key_name.match /<(int|long)>$/
-              points << {
-                :timestamp => timestamp.to_i,
-                :series    => record['module'] << "." << record['submodule'] << "." << record['action'] << "." << key_name.sub(/<(int|long)>$/, ''),
-                :values    => { value: record[key_name].to_f },
-                :tags      => tags,
-              }
-            elsif key_name.match /<(float|double)>$/
-              points << {
-                :timestamp => timestamp.to_i,
-                :series    => record['module'] << "." << record['submodule'] << "." << record['action'] << "." << key_name.sub(/<(float|double)>$/, ''),
-                :values    => { value: record[key_name].to_f },
-                :tags      => tags,
-              }
-            end
-          else
-            $log.warn('Unrecognized schema. Dropping record.')
-          end
-        else
+        # Only write burn latency metrics to influx. Ignore all others.
+        if key_name.include? "burnlatency"
           if key_name.match /<(int|long)>$/
             points << {
               :timestamp => timestamp.to_i,
